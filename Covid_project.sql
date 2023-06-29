@@ -388,7 +388,8 @@ Group by Location, Population, date, total_cases
 order by date, PercentPopulationInfected desc;
 
 
-
+-- LINK TO THE DASHBOARD:
+-- https://public.tableau.com/app/profile/david6269/viz/Covid_Dashboard_16879713806820/Dashboard1
 
 
 
