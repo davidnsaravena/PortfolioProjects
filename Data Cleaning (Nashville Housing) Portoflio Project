@@ -1,1 +1,186 @@
+--> Working in PostgreSQL
 
+create table nashville_info();
+
+-- Transformamos la columa saledate a formato de fecha y actualizamos la tabla
+select saledate, to_date(saledate, 'yyyy/mm/dd')
+from nashville_info;
+
+update nashville_info set saledate = to_date(saledate, 'yyyy/mm/dd');
+
+-- Lo otro que podríamos hacer es agregar una columna con saledate pero en formato fecha
+
+alter table nashville_info
+add saledateconverted date;
+
+update nashville_info set saledateconverted = to_date(saledate, 'yyyy/mm/dd');
+
+-- Cambiaremos el nombre de la columna "UniqueID " por "unique_id"
+
+alter table nashville_info rename column "UniqueID " to unique_id;
+
+-- Analizando valores null en la columna 'propertyaddress'
+select propertyaddress
+from nashville_info
+where propertyaddress = '';
+
+-- Si analizamos la columna ParcelID junto con propertyaddress, veremos que si hay 2 propiedades
+-- con el mismo ParcelID, todos tienen la misma propertyaddress, salvo que hay algunos con valroes null
+-- se destaca también que su unique_id es distinto.
+-- Entonces, tenemos mismo ParcelID y distinto unique_id. Para rellenar los propertyaddress vacíos
+-- podemos hacer un self join de la tabla para saber la dirección que debería tener ese dato vacío
+-- usando ParcelID.
+
+select a.unique_id, a.ParcelID, a.propertyaddress, b.unique_id, b.ParcelID, b.propertyaddress 
+from nashville_info a
+join nashville_info b 
+on a.parcelid = b.parcelid
+and a.unique_id <> b.unique_id -- con esto evitamos que se una a la misma fila
+where a.propertyaddress = '';
+
+-- Ahora actualizaremos la tabla y pondremos valores null a los espacios en blanco para
+-- poder utilizar la función isnull y así actualizar los valores null con las direcciones 
+-- que corresponden.
+
+update nashville_info set propertyaddress = null where propertyaddress = '';
+
+update nashville_info
+set propertyaddress = coalesce(a.propertyaddress, b.propertyaddress)
+from nashville_info as a
+join nashville_info as b 
+on a.parcelid = b.parcelid
+and a.unique_id <> b.unique_id -- con esto evitamos que se una a la misma fila
+where a.propertyaddress is null;
+
+select a.unique_id, a.ParcelID, a.propertyaddress, b.unique_id, b.ParcelID, b.propertyaddress 
+from nashville_info a
+join nashville_info b 
+on a.parcelid = b.parcelid
+and a.unique_id <> b.unique_id -- con esto evitamos que se una a la misma fila
+where a.propertyaddress = '';
+
+-- Breaking out address into individual columns (address, city, state).
+-- I recognize two ways of we can do this:
+-- 1. Using the SUBSTRING, STRPOS and LENGTH function:
+
+select 
+	substring(propertyaddress, 1, strpos(propertyaddress, ',')-1) as address,
+	substring(propertyaddress, strpos(propertyaddress, ',')+1, length(propertyaddress)) as city
+from nashville_info;
+
+-- 2. Using the SPLIT_PART function
+
+select 
+	split_part(propertyaddress, ',', 1) as address,
+	split_part(propertyaddress, ',', 2) as city
+from nashville_info;
+
+-- Now, we're creating 2 new columns with the address:
+
+alter table nashville_info 
+add property_address varchar(255);
+
+update nashville_info 
+set property_address =  split_part(propertyaddress, ',', 1);
+
+alter table nashville_info 
+add property_city varchar(255);
+
+update nashville_info 
+set property_city =  split_part(propertyaddress, ',', 2)
+
+-- We'll do the same with the owner address:
+select 
+	split_part(owneraddress, ',', 1) as address,
+	split_part(owneraddress, ',', 2) as city,
+	split_part(owneraddress, ',', 3) as state
+from nashville_info;
+
+alter table nashville_info 
+add owner_address varchar(255);
+
+update nashville_info 
+set owner_address =  split_part(owneraddress, ',', 1);
+
+alter table nashville_info 
+add owner_city varchar(255);
+
+update nashville_info 
+set owner_city =  split_part(owneraddress, ',', 2);
+
+alter table nashville_info 
+add owner_state varchar(255);
+
+update nashville_info 
+set owner_state =  split_part(owneraddress, ',', 3);
+
+-- Change Y and N to Yes and No in 'Sold as Vacant' field:
+-- First, we explore the values in that field:
+
+select distinct (soldasvacant)
+from nashville_info;
+
+select soldasvacant,
+	case when soldasvacant = 'Y' then 'Yes'
+	when soldasvacant = 'N'then 'No'
+	else soldasvacant
+	end
+from nashville_info;
+
+update nashville_info 
+set soldasvacant = case when soldasvacant = 'Y' then 'Yes'
+	when soldasvacant = 'N'then 'No'
+	else soldasvacant
+	end
+
+-- Remove duplicates:
+-- despite having the unique_id, we're supossing that rows with the same parcelid, propertyaddress,
+-- saleprice, saledate and legalreference are duplicate data.
+
+with rownumber_CTE as (
+select *,
+	row_number() over (partition by parcelid, propertyaddress, saleprice, saledate, legalreference order by unique_id) as row_number
+from nashville_info
+order by parcelid)
+
+select *
+from rownumber_CTE
+where row_number > 1
+order by propertyaddress;
+
+-- Now, we delete those duplicates:
+-- First, we create a cte to find the duplicates
+
+with rownumber_cte as (
+select *,
+	row_number() over (partition by parcelid, propertyaddress, saleprice, saledate, legalreference order by unique_id) as row_number
+from nashville_info)
+
+-- Second, we join the cte to nashville info and we delete the rows where the unique_id appears in
+-- the join.
+ 
+delete
+from nashville_info 
+where unique_id in ( 
+select ni.unique_id 
+from nashville_info as ni
+inner join rownumber_cte as r
+on ni.unique_id = r.unique_id
+where row_number > 1)
+
+-- Deleted unused columns
+
+select *
+from nashville_info;
+
+-- As we can see, there's some columns we could delete because we're not using it, like, for example:
+-- propertyaddress, owneraddress, taxdistrict
+
+alter table nashville_info 
+drop column propertyaddress; 
+alter table nashville_info 
+drop column owneraddress;
+alter table nashville_info 
+drop column taxdistrict;
+alter table nashville_info 
+drop column saledate;
