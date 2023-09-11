@@ -1,3 +1,5 @@
+-- Data Exploration of Covid 19 Dataset in PostreSQL
+
 -- Creating the tables. Just for the record, the file we extract the data to put in the tables is the same, I'm just splitting certain
 -- columns to show more skills on SQL like JOINS, for example.
 
